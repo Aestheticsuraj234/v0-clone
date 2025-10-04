@@ -1,9 +1,16 @@
 import { inngest } from "./client";
-import { gemini, createAgent, createTool, createNetwork } from "@inngest/agent-kit";
+import {
+  gemini,
+  createAgent,
+  createTool,
+  createNetwork,
+} from "@inngest/agent-kit";
 import Sandbox from "@e2b/code-interpreter";
 import z from "zod";
 import { PROMPT } from "@/prompt";
 import { lastAssistantTextMessageContent } from "./utils";
+import db from "@/lib/db";
+import { MessageRole, MessageType } from "@prisma/client";
 
 export const codeAgentFunction = inngest.createFunction(
   { id: "code-agent" },
@@ -116,49 +123,52 @@ export const codeAgentFunction = inngest.createFunction(
                   const content = await sanbox.files.read(file);
                   contents.push({ path: file, content });
                 }
-                return JSON.stringify(contents)
+                return JSON.stringify(contents);
               } catch (error) {
-                return "Error" + error
+                return "Error" + error;
               }
             });
           },
         }),
       ],
-      
-      lifecycle:{
-        onResponse:async ({result , network})=>{
-          const lastAssistantMessageText = lastAssistantTextMessageContent(result);
 
-          if(lastAssistantMessageText && network){
-            if(lastAssistantMessageText.includes("<task_summary>")){
-              network.state.data.summary = lastAssistantMessageText
+      lifecycle: {
+        onResponse: async ({ result, network }) => {
+          const lastAssistantMessageText =
+            lastAssistantTextMessageContent(result);
+
+          if (lastAssistantMessageText && network) {
+            if (lastAssistantMessageText.includes("<task_summary>")) {
+              network.state.data.summary = lastAssistantMessageText;
             }
           }
 
           return result;
-        }
-      }
+        },
+      },
     });
 
     const network = createNetwork({
-      name:"coding-agent-network",
-      agents:[codeAgent],
-      maxIter:10,
-      
-      router:async ({network})=>{
+      name: "coding-agent-network",
+      agents: [codeAgent],
+      maxIter: 10,
+
+      router: async ({ network }) => {
         const summary = network.state.data.summary;
 
-        if(summary){
-          return
+        if (summary) {
+          return;
         }
 
-        return codeAgent
-      }
-    })
+        return codeAgent;
+      },
+    });
 
-   const result = await network.run(event.data.value)
+    const result = await network.run(event.data.value);
 
-   const isError = !result.state.data.summary ||  Object.keys(result.state.data.files || {}).length === 0;
+    const isError =
+      !result.state.data.summary ||
+      Object.keys(result.state.data.files || {}).length === 0;
 
     const sandboxUrl = await step.run("get-sandbox-url", async () => {
       const sandbox = await Sandbox.connect(sandboxId);
@@ -167,11 +177,43 @@ export const codeAgentFunction = inngest.createFunction(
       return `http://${host}`;
     });
 
+    await step.run("save-result" , async()=>{
+      if(isError){
+        return await db.message.create({
+          data:{
+            projectId:event.data.projectId,
+            content:"Something went wrong. Please try again",
+            role:MessageRole.ASSISTANT,
+            type:MessageType.ERROR
+          }
+        })
+      }
+
+
+      return await db.message.create({
+        data:{
+          projectId:event.data.projectId,
+          content:result.state.data.summary,
+          role:MessageRole.ASSISTANT,
+          type:MessageType.RESULT,
+          fragments:{
+            create:{
+              sandboxUrl:sandboxUrl,
+              title:"Untitled",
+              files:result.state.data.files
+            }
+          }
+        }
+      })
+    })
+
+   
+
     return {
-      url:sandboxUrl,
-      title:"Untitled",
-      files:result.state.data.files,
-      summary:result.state.data.summary
+      url: sandboxUrl,
+      title: "Untitled",
+      files: result.state.data.files,
+      summary: result.state.data.summary,
     };
   }
 );
