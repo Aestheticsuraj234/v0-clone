@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@clerk/nextjs": "^6.33.1",
+    "@clerk/themes": "^2.4.24",
     "@e2b/code-interpreter": "^2.0.0",
     "@hookform/resolvers": "^5.2.2",
     "@inngest/agent-kit": "^0.13.0",
@@ -54,6 +55,7 @@
     "prisma": "^6.16.3",
     "prismjs": "^1.30.0",
     "random-word-slugs": "^0.1.7",
+    "rate-limiter-flexible": "^8.0.1",
     "react": "19.1.0",
     "react-day-picker": "^9.11.0",
     "react-dom": "19.1.0",
